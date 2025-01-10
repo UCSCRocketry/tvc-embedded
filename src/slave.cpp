@@ -80,12 +80,16 @@ void loop() {
       digitalWrite(LED_BUILTIN, HIGH);
       RH_RF95::printBuffer("Received: ", buf, len);
       Serial.print("Got: ");
-      Serial.println((char*)buf);
-       Serial.print("RSSI: ");
+      int throttle = atoi((char*)buf);
+
+
+
+      Serial.println(throttle);
+        Serial.print("RSSI: ");
       Serial.println(rf95.lastRssi(), DEC);
 
       // Send a reply
-      uint8_t data[] = "And hello back to you";
+      uint8_t data[] = "data recieved";
       rf95.send(data, sizeof(data));
       rf95.waitPacketSent();
       Serial.println("Sent a reply");
