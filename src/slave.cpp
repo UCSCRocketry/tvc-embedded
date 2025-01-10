@@ -17,16 +17,21 @@
 
 #include <SPI.h>
 #include <RH_RF95.h>
+#include <Servo.h>
 
 #define RFM95_CS    8
 #define RFM95_INT   7
 #define RFM95_RST   4
+
+#define ESC_PIN 9
 
 
 
 
 // Change to 434.0 or other frequency, must match RX's freq!
 #define RF95_FREQ 915.0
+
+Servo esc;
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -37,7 +42,6 @@ void setup() {
   digitalWrite(RFM95_RST, HIGH);
 
   Serial.begin(115200);
-  while (!Serial) delay(1);
   delay(100);
 
   Serial.println("Feather LoRa RX Test!");
@@ -68,6 +72,24 @@ void setup() {
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then
   // you can set transmitter powers from 5 to 23 dBm:
   rf95.setTxPower(23, false);
+
+
+  // Attach the ESC to the Arduino
+  esc.attach(ESC_PIN);
+
+  // Step 1: Send maximum throttle for calibration
+  Serial.println("Calibrating ESC - Sending max throttle...");
+  esc.writeMicroseconds(2000); // Maximum throttle
+  delay(3000);                 // Wait for ESC to register max throttle
+
+  // Step 2: Send minimum throttle to complete calibration
+  Serial.println("Calibrating ESC - Sending min throttle...");
+  esc.writeMicroseconds(1000); // Minimum throttle
+  delay(3000);                 // Wait for ESC to register min throttle
+
+
+  // ESC should now be armed
+  Serial.println("ESC calibrated and armed.");
 }
 
 void loop() {
@@ -87,6 +109,8 @@ void loop() {
       Serial.println(throttle);
         Serial.print("RSSI: ");
       Serial.println(rf95.lastRssi(), DEC);
+
+      esc.writeMicroseconds(throttle);
 
       // Send a reply
       uint8_t data[] = "data recieved";
