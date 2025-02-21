@@ -26,6 +26,8 @@
 #define RF95_FREQ 915.0
 
 #define ESC_PIN 9
+#define YAW_SERVO 12
+#define PITCH_SERVO 13
 
 int throttle;
 
@@ -33,6 +35,8 @@ int throttle;
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 Servo esc;
+Servo yaw;
+Servo pitch;
 Adafruit_BNO055 bno = Adafruit_BNO055(55);
 MS5607 P_Sens;
 TinyGPSPlus gps;
@@ -84,6 +88,9 @@ void setup() {
     // Attach the ESC to the Arduino
   esc.attach(ESC_PIN);
 
+  pitch.attach(PITCH_SERVO);
+  yaw.attach(YAW_SERVO);
+
 
   // Step 1: Send maximum throttle for calibration
   Serial.println("Calibrating ESC - Sending max throttle...");
@@ -118,107 +125,67 @@ void setup() {
 
   SHUTDOWN = false;
 }
-void loop() {
 
+void loop() {
   // Read from RF95 (LoRa) module
   if (rf95.available()) {
     uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
     uint8_t len = sizeof(buf);
 
+    if (!rf95.recv(buf, &len)) {
+      Serial.println("Receive failed");
+      return;
+    }
+
+    buf[len] = '\0';  // Null-terminate the received string
+    Serial.print("Received: ");
+    Serial.println((char*)buf);
+
     if (strcmp((char*)buf, "off") == 0) {
-        throttle = 1000;
-        esc.writeMicroseconds(throttle);
-        SHUTDOWN = true;
-    } else if (strcmp((char*)buf, "on") == 0) {
+      throttle = 1000;
+      esc.writeMicroseconds(throttle);
+      SHUTDOWN = true;
+      return;
+    } 
+    else if (strcmp((char*)buf, "on") == 0) {
       SHUTDOWN = false;
+      return;
     }
 
-    
     if (!SHUTDOWN) {
-      if (rf95.recv(buf, &len)) {
-        digitalWrite(LED_BUILTIN, HIGH);
-        throttle = atoi((char*)buf);
+      // Parse three integers from received data
+      int t, p, y;
+      if (sscanf((char*)buf, "%d %d %d", &t, &p, &y) == 3) {
+        // Clamp values to safe ranges
+        throttle = constrain(t, 1000, 2000);
+        int pitch_val = constrain(p, 0, 180);
+        int yaw_val = constrain(y, 0, 180);
 
-
-        // Clamp throttle between 1000 and 2000
-        throttle = constrain(throttle, 1000, 2000);
+        // Apply values to ESC and servos
         esc.writeMicroseconds(throttle);
+        pitch.write(pitch_val);
+        yaw.write(yaw_val);
 
-        // Send a reply
-        uint8_t data[15];
-        sprintf((char *)data, "received: %s", buf);
-        rf95.send(data, sizeof(data));
+        Serial.print("Throttle set to: ");
+        Serial.print(throttle);
+        Serial.print(" | Pitch set to: ");
+        Serial.print(pitch_val);
+        Serial.print("° | Yaw set to: ");
+        Serial.print(yaw_val);
+        Serial.println("°");
+
+        // Send acknowledgment
+        char response[32];
+        snprintf(response, sizeof(response), "ACK: %d %d %d", throttle, pitch_val, yaw_val);
+        rf95.send((uint8_t*)response, strlen(response));
         rf95.waitPacketSent();
-          
-        digitalWrite(LED_BUILTIN, LOW);
-      } else {
-        Serial.print("Receive failed");
-      }
-    } else {
-      if (rf95.recv(buf, &len)) {
-        uint8_t data[15];
-        sprintf((char *)data, "SHUTDOWN: command %s not executed", buf);
-        Serial.print("SHUTDOWN");
-        rf95.send(data, sizeof(data));
-        rf95.waitPacketSent();
+      } 
+      else {
+        Serial.println("Invalid command format");
       }
     }
-    
-    
-  }
-  if (!SHUTDOWN) {
-    // Read sensor data (Temperature, Pressure, Altitude)
-    if (P_Sens.readDigitalValue()) {
-      T_val = P_Sens.getTemperature();
-      P_val = P_Sens.getPressure();
-      H_val = P_Sens.getAltitude();
-    } else {
-      Serial.print(" | Sensor Error ");
-    }
-
-    // Read IMU (BNO055) orientation data
-    sensors_event_t event; 
-    bno.getEvent(&event);
-    float imu_x = event.orientation.x;
-    float imu_y = event.orientation.y;
-    float imu_z = event.orientation.z;
-
-    // Read GPS data
-    float latitude = 0.0, longitude = 0.0;
-    if (gpsSerial.available() > 0) {
-      gps.encode(gpsSerial.read());
-      if (gps.location.isUpdated()) {
-        latitude = gps.location.lat();
-        longitude = gps.location.lng();
-      }
-    }
-
-    // Print final formatted line
-    Serial.print("Throttle: ");
-    Serial.print(throttle);
-    Serial.print(" | Temp: ");
-    Serial.print(T_val);
-    Serial.print("C | Pressure: ");
-    Serial.print(P_val);
-    Serial.print("mBar | Altitude: ");
-    Serial.print(H_val);
-    Serial.print("m | IMU: ");
-    Serial.print(imu_x, 2);
-    Serial.print("°, ");
-    Serial.print(imu_y, 2);
-    Serial.print("°, ");
-    Serial.print(imu_z, 2);
-    Serial.print("° | GPS: ");
-    
-    if (latitude != 0.0 && longitude != 0.0) {
-      Serial.print(latitude, 6);
-      Serial.print(", ");
-      Serial.print(longitude, 6);
-    } else {
-      Serial.print("No Fix");
-    }
-    Serial.println(); // Move to a new line after one complete update
   }
 }
+
 
 #endif
